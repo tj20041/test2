@@ -32,11 +32,25 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles using named string key so PySpark
+# automatically coalesces the duplicate 'customer_id' columns into one,
+# eliminating any AMBIGUOUS_REFERENCE error in downstream operations.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    on="customer_id",
+    how="inner"
+)
+
+# Guard-rail: assert no duplicate column names exist in the joined DataFrame
+# before proceeding, so any future join refactoring that re-introduces
+# duplicate columns is caught here with a clear, actionable error message.
+duplicate_cols = [
+    name for name in enriched_orders.columns
+    if enriched_orders.columns.count(name) > 1
+]
+assert len(duplicate_cols) == 0, (
+    f"Duplicate columns detected after join: {duplicate_cols}. "
+    "Resolve ambiguous column names before selecting."
 )
 
 # Select final fields for downstream reporting

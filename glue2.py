@@ -33,10 +33,14 @@ customers_df = spark.createDataFrame(
 )
 
 # Join orders with customer profiles
+# Using a string key name ('customer_id') instead of a Column object expression so
+# that Spark automatically deduplicates the join key in the output DataFrame,
+# eliminating the AMBIGUOUS_REFERENCE AnalysisException that occurred when
+# orders_df.customer_id == customers_df.customer_id was used as the join condition.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    on='customer_id',
+    how='inner'
 )
 
 # Select final fields for downstream reporting

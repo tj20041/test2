@@ -32,11 +32,15 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles.
+# Using on=['customer_id'] (list-style join) instead of a column equality expression
+# so that PySpark automatically deduplicates the shared key column in the output
+# DataFrame, producing exactly one 'customer_id' column and avoiding
+# AnalysisException: [AMBIGUOUS_REFERENCE] on the downstream select().
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    on=['customer_id'],
+    how='inner'
 )
 
 # Select final fields for downstream reporting

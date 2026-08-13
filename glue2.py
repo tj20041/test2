@@ -20,7 +20,6 @@ spark = glueContext.spark_session
 job = Job(glueContext)
 job.init(args['JOB_NAME'], args)
 
-# CloudWatch automatically captures standard logger stream output
 logger = logging.getLogger("SalesOrderProcessingETL")
 logger.setLevel(logging.INFO)
 
@@ -30,7 +29,7 @@ if not logger.handlers:
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)
 
-logger.info("Initializing Sales Order Processing Glue Job...")
+logger.info("Initializing Sales Order Processing ETL Job...")
 
 try:
     # ==========================================
@@ -79,11 +78,15 @@ try:
     # ==========================================
     logger.info("Enriching orders with customer metadata for Gold layer...")
 
-    # FIX: Use on="customer_id" instead of binary equality to drop duplicate key columns
+    # SPECIFIC ERROR: Ambiguous column reference in join
+    # Joining with binary equality (orders_silver.customer_id == customers_silver.customer_id)
+    # preserves duplicate 'customer_id' columns in the resulting dataframe, causing PySpark's
+    # .select("customer_id", ...) to fail with an AnalysisException: Reference 'customer_id' is ambiguous.
+    # FIX: Use on="customer_id" (or select orders_silver["customer_id"])
     joined_df = orders_silver.join(
         customers_silver,
-        on="customer_id",
-        how="inner"
+        orders_silver.customer_id == customers_silver.customer_id,
+        "inner"
     )
 
     df_gold = joined_df.select(
@@ -94,15 +97,13 @@ try:
         "amount"
     )
 
-    logger.info("Pipeline completed successfully. Output schema:")
-    df_gold.printSchema()
-
-    # Replaces Databricks display() to log output directly to CloudWatch
+    logger.info("Pipeline completed successfully.")
     df_gold.show(truncate=False)
 
-    # Commit Glue job state
+    # Commit Glue Job
     job.commit()
 
 except Exception as e:
-    logger.error("Glue Pipeline failed during execution. Error details: %s", str(e))
+    # Error handling and logging for production diagnostics
+    logger.error("Pipeline failed during execution. Error details: %s", str(e))
     raise

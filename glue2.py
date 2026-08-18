@@ -32,11 +32,22 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles using a string key so that PySpark
+# automatically deduplicates the shared join column, eliminating any
+# AMBIGUOUS_REFERENCE when the column is referenced later by name.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
+    "customer_id",
     "inner"
+)
+
+# Guard: assert that all expected columns are present in the joined DataFrame
+# before attempting the select, so any future schema regression fails fast
+# with a clear message rather than an opaque Spark AnalysisException.
+expected_cols = {"customer_id", "order_id", "customer_name", "order_amount"}
+actual_cols = set(enriched_orders.columns)
+assert expected_cols.issubset(actual_cols), (
+    f"Missing columns after join: {expected_cols - actual_cols}"
 )
 
 # Select final fields for downstream reporting

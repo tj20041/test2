@@ -32,14 +32,29 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles.
+# Use the 'using column name' string syntax so Spark automatically coalesces
+# the shared key into a single 'customer_id' output column, eliminating the
+# AMBIGUOUS_REFERENCE AnalysisException that arises when both sides of the
+# join carry an identically-named column and F.col() is used unqualified.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    on="customer_id",
+    how="inner"
 )
 
-# Select final fields for downstream reporting
+# Assert no duplicate column names exist in the joined DataFrame before
+# proceeding to the select, so any future schema-drift regressions surface
+# at the join boundary rather than further downstream.
+assert len(set(enriched_orders.columns)) == len(enriched_orders.columns), (
+    "Duplicate column names detected in enriched_orders after join: "
+    + str(enriched_orders.columns)
+)
+
+# Select final fields for downstream reporting.
+# All four columns are now unambiguous: 'customer_id' is coalesced by the
+# using-syntax join; 'order_id', 'order_amount', and 'customer_name' each
+# exist on only one side of the join.
 final_df = enriched_orders.select(
     F.col("customer_id"),
     F.col("order_id"),

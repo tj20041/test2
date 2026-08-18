@@ -32,12 +32,26 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles.
+# Using a string column name as the join key (on="customer_id") is the
+# idiomatic AWS Glue PySpark pattern: PySpark deduplicates the join key
+# and retains exactly one 'customer_id' column in the result, preventing
+# the AnalysisException: [AMBIGUOUS_REFERENCE] that occurs when the join
+# is expressed as a cross-DataFrame equality predicate
+# (orders_df.customer_id == customers_df.customer_id), which preserves
+# both copies of the column under the same name.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    on="customer_id",
+    how="inner"
 )
+
+# Guard: detect any duplicate column names introduced by schema drift
+# before proceeding to the select step, so failures surface with a clear
+# message rather than a cryptic AMBIGUOUS_REFERENCE at select time.
+duplicate_cols = [c for c in enriched_orders.columns if enriched_orders.columns.count(c) > 1]
+if duplicate_cols:
+    raise ValueError(f"Duplicate columns detected after join: {duplicate_cols}")
 
 # Select final fields for downstream reporting
 final_df = enriched_orders.select(

@@ -32,14 +32,28 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles using the 'using columns' string form so
+# that PySpark automatically deduplicates the join key column. Using a
+# Column-equality predicate (orders_df.customer_id == customers_df.customer_id)
+# retains two identically-named 'customer_id' columns in the output, which
+# causes AnalysisException: [AMBIGUOUS_REFERENCE] on any subsequent unqualified
+# reference to that column name.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    on="customer_id",
+    how="inner"
 )
 
-# Select final fields for downstream reporting
+# Defensive guard: assert no duplicate column names were introduced by the join.
+# This surfaces schema ambiguity at the join site immediately in CloudWatch Logs
+# rather than propagating silently to a downstream transformation.
+dup_cols = [c for c in enriched_orders.columns if enriched_orders.columns.count(c) > 1]
+if dup_cols:
+    raise ValueError(f"Duplicate columns detected after join: {dup_cols}")
+
+# Select final fields for downstream reporting.
+# F.col("customer_id") now resolves unambiguously because the join above
+# produced exactly one deduplicated 'customer_id' column.
 final_df = enriched_orders.select(
     F.col("customer_id"),
     F.col("order_id"),

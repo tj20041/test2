@@ -32,14 +32,28 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles.
+# Using a string key for 'on' so PySpark automatically deduplicates the
+# shared 'customer_id' column in the output DataFrame, preventing the
+# AnalysisException: AMBIGUOUS_REFERENCE error that occurs when a
+# column-equality expression (df1.col == df2.col) is used and both source
+# columns are retained under the same name.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    on="customer_id",
+    how="inner"
 )
 
-# Select final fields for downstream reporting
+# Defensive assertion: catch any duplicate column names immediately after
+# the join so that schema bugs are surfaced at development time rather than
+# as a runtime AnalysisException in production.
+assert len(enriched_orders.columns) == len(set(enriched_orders.columns)), (
+    f"Duplicate columns detected after join: {enriched_orders.columns}"
+)
+
+# Select final fields for downstream reporting.
+# 'customer_id' is now unambiguous because the string-key join above emits
+# only a single deduplicated column.
 final_df = enriched_orders.select(
     F.col("customer_id"),
     F.col("order_id"),

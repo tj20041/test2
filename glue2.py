@@ -1,4 +1,5 @@
 import sys
+from collections import Counter
 from awsglue.transforms import *
 from awsglue.utils import getResolvedOptions
 from pyspark.context import SparkContext
@@ -32,12 +33,20 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles.
+# Using on='customer_id' (string key form) instead of a Column equality expression
+# ensures PySpark retains only ONE 'customer_id' column in the result DataFrame,
+# eliminating the AMBIGUOUS_REFERENCE error that occurs when both sides' columns
+# are kept under the same name after an equality-expression join.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    on='customer_id',
+    how='inner'
 )
+
+# Defensive post-join check: assert no duplicate column names were introduced.
+duplicate_cols = [c for c, cnt in Counter(enriched_orders.columns).items() if cnt > 1]
+assert not duplicate_cols, f"Duplicate columns detected after join: {duplicate_cols}"
 
 # Select final fields for downstream reporting
 final_df = enriched_orders.select(

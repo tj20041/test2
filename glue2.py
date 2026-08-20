@@ -32,11 +32,20 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles.
+# Using on="customer_id" (string key form) instead of the explicit equality
+# predicate so that PySpark automatically merges both sides of the join key
+# into a single output column, eliminating the AMBIGUOUS_REFERENCE error that
+# occurred when F.col("customer_id") was referenced after the join.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    on="customer_id",
+    how="inner"
+)
+
+# Guard: assert no duplicate column names were introduced by the join.
+assert len(enriched_orders.columns) == len(set(enriched_orders.columns)), (
+    f"Duplicate columns detected after join: {enriched_orders.columns}"
 )
 
 # Select final fields for downstream reporting

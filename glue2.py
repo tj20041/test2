@@ -32,14 +32,24 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles.
+# Using on='customer_id' (string form) instead of the column-object equality
+# expression so that PySpark automatically merges the two customer_id columns
+# into a single unambiguous column in the resulting DataFrame.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    on='customer_id',
+    how='inner'
 )
 
-# Select final fields for downstream reporting
+# Post-join guard: assert no duplicate column names were introduced.
+# This makes any future regression immediately self-documenting.
+duplicate_cols = [c for c in enriched_orders.columns if enriched_orders.columns.count(c) > 1]
+assert not duplicate_cols, f'Duplicate columns detected after join: {duplicate_cols}'
+
+# Select final fields for downstream reporting.
+# F.col('customer_id') is now unambiguous because the string-based join
+# merged both sides' customer_id into one column.
 final_df = enriched_orders.select(
     F.col("customer_id"),
     F.col("order_id"),

@@ -14,6 +14,8 @@ spark = glueContext.spark_session
 job = Job(glueContext)
 job.init(args['JOB_NAME'], args)
 
+logger = glueContext.get_logger()
+
 # Read orders data
 orders_df = spark.createDataFrame(
     [
@@ -32,12 +34,22 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles.
+# Using a string join key ('customer_id') instead of a column-expression condition
+# (orders_df.customer_id == customers_df.customer_id) so that PySpark automatically
+# deduplicates the join key column in the output DataFrame, avoiding an
+# AMBIGUOUS_REFERENCE AnalysisException on any subsequent unqualified reference
+# to customer_id.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    'customer_id',
+    'inner'
 )
+
+# Defensive post-join schema check: assert no duplicate column names exist.
+duplicate_cols = [c for c in enriched_orders.columns if enriched_orders.columns.count(c) > 1]
+assert not duplicate_cols, f"Duplicate columns detected after join: {duplicate_cols}"
+logger.info(f"Post-join schema: {enriched_orders.columns}")
 
 # Select final fields for downstream reporting
 final_df = enriched_orders.select(

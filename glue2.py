@@ -32,12 +32,18 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles using a string key so that Spark
+# coalesces the shared join column into a single 'customer_id' column,
+# preventing AMBIGUOUS_REFERENCE in downstream select() calls.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    on="customer_id",
+    how="inner"
 )
+
+# Guard against duplicate column names introduced by future join changes.
+duplicate_cols = [c for c in enriched_orders.columns if enriched_orders.columns.count(c) > 1]
+assert not duplicate_cols, f"Duplicate columns detected after join: {duplicate_cols}"
 
 # Select final fields for downstream reporting
 final_df = enriched_orders.select(

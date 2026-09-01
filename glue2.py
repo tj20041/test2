@@ -32,19 +32,31 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles.
+# Using a string key name instead of a column equality expression ensures
+# PySpark deduplicates the join key into a single 'customer_id' column in
+# the output DataFrame, preventing an AMBIGUOUS_REFERENCE AnalysisException
+# on the subsequent select.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    'customer_id',
+    'inner'
 )
 
-# Select final fields for downstream reporting
+# Assert that exactly one 'customer_id' column exists after the join.
+# This guard catches any future regression where duplicate columns could
+# be reintroduced (e.g. if the join condition is later changed).
+assert len([f.name for f in enriched_orders.schema.fields if f.name == 'customer_id']) == 1, \
+    'Duplicate customer_id columns detected post-join'
+
+# Select final fields for downstream reporting.
+# Using string column names is idiomatic for straightforward column
+# selection in Glue PySpark scripts and avoids unnecessary F.col() wrappers.
 final_df = enriched_orders.select(
-    F.col("customer_id"),
-    F.col("order_id"),
-    F.col("customer_name"),
-    F.col("order_amount")
+    'customer_id',
+    'order_id',
+    'customer_name',
+    'order_amount'
 )
 
 # Process final dataset

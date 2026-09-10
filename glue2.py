@@ -32,11 +32,26 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles.
+# Use a string-based join key (rather than a column-expression condition) so
+# Spark automatically de-duplicates the shared 'customer_id' column instead
+# of retaining two separate 'customer_id' columns in the resulting frame.
+# This avoids the AMBIGUOUS_REFERENCE AnalysisException that previously
+# occurred when selecting F.col('customer_id') after the join.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
+    "customer_id",
     "inner"
+)
+
+# Defensive check: fail fast with a clear, actionable error if a future
+# schema change reintroduces a duplicate/ambiguous 'customer_id' column,
+# instead of letting it surface later as an opaque Spark AnalysisException.
+_customer_id_count = enriched_orders.columns.count("customer_id")
+assert _customer_id_count == 1, (
+    f"Expected exactly one 'customer_id' column after join, found "
+    f"{_customer_id_count}. Check join logic in glue2.py for duplicate "
+    f"join keys."
 )
 
 # Select final fields for downstream reporting

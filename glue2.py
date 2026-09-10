@@ -6,6 +6,7 @@ from awsglue.context import GlueContext
 from awsglue.job import Job
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.utils import AnalysisException
 
 args = getResolvedOptions(sys.argv, ['JOB_NAME'])
 sc = SparkContext()
@@ -13,6 +14,8 @@ glueContext = GlueContext(sc)
 spark = glueContext.spark_session
 job = Job(glueContext)
 job.init(args['JOB_NAME'], args)
+
+logger = glueContext.get_logger()
 
 # Read orders data
 orders_df = spark.createDataFrame(
@@ -32,12 +35,28 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles using the join-key-list form so that
+# the shared 'customer_id' column is automatically deduped into a single,
+# unambiguous column instead of retaining two physically distinct columns
+# named 'customer_id' (one from each side of the join).
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
+    "customer_id",
     "inner"
 )
+
+# Defensive schema check: fail fast with a clear, actionable message if a
+# future change to the join reintroduces a duplicate 'customer_id' column,
+# rather than letting Spark raise a generic AMBIGUOUS_REFERENCE
+# AnalysisException deep inside the select() call.
+customer_id_count = enriched_orders.columns.count("customer_id")
+if customer_id_count != 1:
+    error_message = (
+        f"Expected exactly one 'customer_id' column after join, found "
+        f"{customer_id_count}. Columns: {enriched_orders.columns}"
+    )
+    logger.error(error_message)
+    raise ValueError(error_message)
 
 # Select final fields for downstream reporting
 final_df = enriched_orders.select(
@@ -48,6 +67,10 @@ final_df = enriched_orders.select(
 )
 
 # Process final dataset
-final_df.collect()
+try:
+    final_df.collect()
+except AnalysisException as e:
+    logger.error(f"AnalysisException while processing final_df: {e}")
+    raise
 
 job.commit()

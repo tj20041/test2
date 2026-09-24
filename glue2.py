@@ -32,12 +32,29 @@ customers_df = spark.createDataFrame(
     ["customer_id", "customer_name", "segment"]
 )
 
-# Join orders with customer profiles
+# Join orders with customer profiles.
+# Use the single-column join-key syntax ('customer_id') instead of the
+# equality-expression form (orders_df.customer_id == customers_df.customer_id).
+# This automatically de-duplicates the join key column in the result set,
+# preventing the ambiguous column reference AnalysisException that occurs
+# when both DataFrames retain their own copy of a column with the same name.
 enriched_orders = orders_df.join(
     customers_df,
-    orders_df.customer_id == customers_df.customer_id,
-    "inner"
+    'customer_id',
+    'inner'
 )
+
+# Defensive validation: fail fast with a clear, actionable message if any
+# future change to this join (or the source schemas) reintroduces duplicate
+# column names, rather than surfacing only as a generic Glue AnalysisException.
+column_names = enriched_orders.columns
+duplicate_columns = {name for name in column_names if column_names.count(name) > 1}
+if duplicate_columns:
+    raise ValueError(
+        "Ambiguous/duplicate column(s) detected after join in glue2.py: "
+        f"{sorted(duplicate_columns)}. Alias the source DataFrames or drop "
+        "the redundant column(s) before selecting downstream fields."
+    )
 
 # Select final fields for downstream reporting
 final_df = enriched_orders.select(
